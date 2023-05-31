@@ -51,6 +51,7 @@ def get_bool_from_env(name, default_value):
 DEBUG = get_bool_from_env("DEBUG", True)
 
 SITE_ID = 1
+SITE_SETTINGS_ID = 1
 
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -148,13 +149,15 @@ DEFAULT_FROM_EMAIL: str = os.environ.get(
     "DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "noreply@example.com"
 )
 
-MEDIA_ROOT: str = os.path.join(PROJECT_ROOT, "media")
+# MEDIA_ROOT: str = os.path.join(PROJECT_ROOT, "media")
+MEDIA_ROOT: str = os.environ.get("MEDIA_ROOT", "/var/www/eminstore.com/media/")
 MEDIA_URL: str = os.environ.get("MEDIA_URL", "/media/")
 
-STATIC_ROOT: str = os.path.join(PROJECT_ROOT, "static")
+# STATIC_ROOT: str = os.path.join(PROJECT_ROOT, "static")
+STATIC_ROOT: str = os.environ.get("STATIC_ROOT", "/var/www/eminstore.com/static/")
 STATIC_URL: str = os.environ.get("STATIC_URL", "/static/")
 STATICFILES_DIRS = [
-    ("images", os.path.join(PROJECT_ROOT, "saleor", "static", "images"))
+    ("images", os.path.join(STATIC_ROOT, "images"))
 ]
 STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.FileSystemFinder",
