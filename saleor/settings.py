@@ -157,7 +157,8 @@ MEDIA_URL: str = os.environ.get("MEDIA_URL", "/media/")
 STATIC_ROOT: str = os.environ.get("STATIC_ROOT", "/var/www/eminstore.com/static/")
 STATIC_URL: str = os.environ.get("STATIC_URL", "/static/")
 STATICFILES_DIRS = [
-    ("images", os.path.join(STATIC_ROOT, "images"))
+    # ("images", os.path.join(STATIC_ROOT, "images"))
+    ("images", os.path.join(PROJECT_ROOT, "saleor", "static", "images"))
 ]
 STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.FileSystemFinder",
