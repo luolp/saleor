@@ -30,6 +30,9 @@ from .core.schedules import initiated_sale_webhook_schedule
 
 django_stubs_ext.monkeypatch()
 
+def load_rsa_private_key(filepath):
+    with open(filepath, "rb") as f:
+        return f.read()
 
 def get_list(text):
     return [item.strip() for item in text.split(",")]
@@ -199,7 +202,8 @@ if not SECRET_KEY and DEBUG:
     warnings.warn("SECRET_KEY not configured, using a random temporary key.")
     SECRET_KEY = get_random_secret_key()
 
-RSA_PRIVATE_KEY = os.environ.get("RSA_PRIVATE_KEY", None)
+# RSA_PRIVATE_KEY = os.environ.get("RSA_PRIVATE_KEY", None)
+RSA_PRIVATE_KEY = load_rsa_private_key("/opt/eminstore/saleor/saleor/private_key.pem")
 RSA_PRIVATE_PASSWORD = os.environ.get("RSA_PRIVATE_PASSWORD", None)
 JWT_MANAGER_PATH = os.environ.get(
     "JWT_MANAGER_PATH", "saleor.core.jwt_manager.JWTManager"
