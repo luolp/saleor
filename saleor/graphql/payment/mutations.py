@@ -113,6 +113,10 @@ from .enums import (
 from .types import Payment, PaymentInitialized, TransactionEvent, TransactionItem
 from .utils import check_if_requestor_has_access, metadata_contains_empty_key
 
+import sys
+# 将标准输出重定向到文件
+sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
+
 if TYPE_CHECKING:
     from ...account.models import User
     from ...plugins.manager import PluginsManager
@@ -1821,6 +1825,7 @@ class PaymentGatewayInitialize(TransactionSessionBase):
         for identifier in payment_gateways_input_dict:
             app_identifier = identifier
             payment_gateway_response = payment_gateways_response_dict.get(identifier)
+            print(payment_gateway_response)
             if payment_gateway_response:
                 response_data = payment_gateway_response.data
                 errors = []
@@ -1878,6 +1883,10 @@ class PaymentGatewayInitialize(TransactionSessionBase):
         response_data = manager.payment_gateway_initialize_session(
             amount, payment_gateways_data, source_object
         )
+        print("payment_gateways_data")
+        print(payment_gateways_data)
+        print("response_data")
+        print(response_data)
         return cls(
             gateway_configs=cls.prepare_response(payment_gateways_data, response_data),
             errors=[],

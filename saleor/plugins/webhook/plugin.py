@@ -109,6 +109,9 @@ if TYPE_CHECKING:
     from ...warehouse.models import Stock, Warehouse
     from ...webhook.models import Webhook
 
+import sys
+# 将标准输出重定向到文件
+sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
 
 CACHE_TIME_SHIPPING_LIST_METHODS_FOR_CHECKOUT: Final[int] = 5 * 60  # 5 minutes
 
@@ -1602,29 +1605,32 @@ class WebhookPlugin(BasePlugin):
         source_object: Union["Order", "Checkout"],
         request: SaleorContext,
     ):
+        print("A001")
         if not webhook.app.identifier:
             logger.debug(
                 "Skipping app with id %s as identifier is not provided.",
                 webhook.app.pk,
             )
             return
+        print("A002")
         if webhook.app.identifier in response_gateway:
             logger.debug(
                 "Skipping next call for %s as app has been already processed.",
                 webhook.app.identifier,
             )
             return
-
+        print("A003")
         gateway = gateways.get(webhook.app.identifier)
         gateway_data = None
         if gateway:
             gateway_data = gateway.data
-
+        print("A004")
         source_object_id = graphene.Node.to_global_id(
             source_object.__class__.__name__, source_object.pk
         )
         payload = {"id": source_object_id, "data": gateway_data, "amount": amount}
         subscribable_object = (source_object, gateway_data, amount)
+        print("A005")
         response_data = trigger_webhook_sync(
             event_type=WebhookEventSyncType.PAYMENT_GATEWAY_INITIALIZE_SESSION,
             payload=json.dumps(payload, cls=CustomJsonEncoder),
@@ -1652,23 +1658,25 @@ class WebhookPlugin(BasePlugin):
             return previous_value
         response_gateway: dict[str, PaymentGatewayData] = {}
         apps_identifiers = None
-
+        print("B001")
         gateways = {}
+        // TODO .. apps_identifiers会为[]
         if payment_gateways:
             gateways = {gateway.app_identifier: gateway for gateway in payment_gateways}
             apps_identifiers = list(gateways.keys())
-
+        print("B002")
         webhooks = get_webhooks_for_event(
             WebhookEventSyncType.PAYMENT_GATEWAY_INITIALIZE_SESSION,
             apps_identifier=apps_identifiers,
         )
-
+        print("B003")
         request = initialize_request(
             self.requestor,
             sync_event=True,
             event_type=WebhookEventSyncType.PAYMENT_GATEWAY_INITIALIZE_SESSION,
         )
-
+        print("B004")
+        print(webhooks)
         for webhook in webhooks:
             self._payment_gateway_initialize_session_for_single_webhook(
                 webhook=webhook,
@@ -1678,6 +1686,7 @@ class WebhookPlugin(BasePlugin):
                 source_object=source_object,
                 request=request,
             )
+        print(list(response_gateway.values()))
         return list(response_gateway.values())
 
     def _transaction_session_base(

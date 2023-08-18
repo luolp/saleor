@@ -6,6 +6,10 @@ import opentracing.tags
 from braintree.exceptions.braintree_error import BraintreeError
 from django.core.exceptions import ImproperlyConfigured
 
+import sys
+# 将标准输出重定向到文件
+sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
+
 from ... import TransactionKind
 from ...interface import (
     CustomerSource,
@@ -88,8 +92,13 @@ def extract_gateway_response(braintree_result) -> Dict:
         "errors": errors,
     }
 
-
 def get_braintree_gateway(
+    sandbox_mode, merchant_id, public_key, private_key, merchant_account_id
+):
+    gateway = braintree_sdk.BraintreeGateway(access_token=merchant_id)
+    return gateway
+
+def get_braintree_gateway_del(
     sandbox_mode, merchant_id, public_key, private_key, merchant_account_id
 ):
     if not all([merchant_id, private_key, public_key]):
@@ -119,6 +128,9 @@ def get_client_token(
         span.set_tag(opentracing.tags.COMPONENT, "payment")
         span.set_tag("service.name", "braintree")
         parameters = create_token_params(config, token_config)
+        print(parameters)
+        print(config)
+        print(token_config)
         return gateway.client_token.generate(parameters)
 
 

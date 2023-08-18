@@ -77,6 +77,10 @@ if TYPE_CHECKING:
     from ..warehouse.models import Stock, Warehouse
     from .base_plugin import BasePlugin
 
+import sys
+# 将标准输出重定向到文件
+sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
+
 NotifyEventTypeChoice = str
 
 
@@ -181,6 +185,8 @@ class PluginsManager(PaymentInterface):
         """Try to run a method with the given name on each declared active plugin."""
         value = default_value
         plugins = self.get_plugins(channel_slug=channel_slug, active_only=True)
+        print("plugins:")
+        print(plugins)
         for plugin in plugins:
             value = self.__run_method_on_single_plugin(
                 plugin, method_name, value, *args, **kwargs
@@ -202,11 +208,16 @@ class PluginsManager(PaymentInterface):
         will return previous_value.
         """
         plugin_method = getattr(plugin, method_name, NotImplemented)
+        print("plugin_method:")
+        print(plugin_method)
         if plugin_method == NotImplemented:
             return previous_value
         returned_value = plugin_method(
             *args, **kwargs, previous_value=previous_value
         )  # type:ignore
+        print("returned_value:")
+        print(returned_value)
+        print(previous_value)
         if returned_value == NotImplemented:
             return previous_value
         return returned_value
