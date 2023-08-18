@@ -1865,7 +1865,6 @@ class WebhookPlugin(BasePlugin):
         apps_identifiers = None
         print("B001")
         gateways = {}
-        // TODO .. apps_identifiers会为[]
         if payment_gateways:
             gateways = {gateway.app_identifier: gateway for gateway in payment_gateways}
             apps_identifiers = list(gateways.keys())
