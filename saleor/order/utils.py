@@ -11,6 +11,8 @@ from ..account.models import User
 from ..core.prices import quantize_price
 from ..core.taxes import zero_money
 from ..core.tracing import traced_atomic_transaction
+from ..core.utils.country import get_active_country
+from ..core.utils.translations import get_translation
 from ..core.weight import zero_weight
 from ..discount import DiscountType
 from ..discount.models import NotApplicable, OrderDiscount, Voucher, VoucherType
@@ -22,6 +24,7 @@ from ..discount.utils import (
 )
 from ..giftcard import events as gift_card_events
 from ..giftcard.models import GiftCard
+from ..giftcard.search import mark_gift_cards_search_index_as_dirty
 from ..payment.model_helpers import get_total_authorized
 from ..product.utils.digital_products import get_default_digital_content_settings
 from ..shipping.interface import ShippingMethodData
@@ -30,11 +33,7 @@ from ..shipping.utils import (
     convert_to_shipping_method_data,
     initialize_shipping_method_active_status,
 )
-from ..tax.utils import (
-    get_display_gross_prices,
-    get_tax_class_kwargs_for_order_line,
-    get_tax_country,
-)
+from ..tax.utils import get_display_gross_prices, get_tax_class_kwargs_for_order_line
 from ..warehouse.management import (
     decrease_allocations,
     get_order_lines_with_track_inventory,
@@ -63,12 +62,9 @@ if TYPE_CHECKING:
 
 def get_order_country(order: Order) -> str:
     """Return country to which order will be shipped."""
-    address = order.billing_address
-    if order.is_shipping_required():
-        address = order.shipping_address
-    if address is None:
-        return order.channel.default_country.code
-    return address.country.code
+    return get_active_country(
+        order.channel, order.shipping_address, order.billing_address
+    )
 
 
 def order_line_needs_automatic_fulfillment(line_data: OrderLineInfo) -> bool:
@@ -256,8 +252,9 @@ def create_order_line(
 
     product_name = str(product)
     variant_name = str(variant)
-    translated_product_name = str(product.translated)
-    translated_variant_name = str(variant.translated)
+    language_code = order.language_code
+    translated_product_name = get_translation(product, language_code).name
+    translated_variant_name = get_translation(variant, language_code).name
     if translated_product_name == product_name:
         translated_product_name = ""
     if translated_variant_name == variant_name:
@@ -445,14 +442,14 @@ def set_gift_card_user(
     used_by_user: Optional[User],
     used_by_email: str,
 ):
-    """Set user when the gift card is used for the first time."""
-    if gift_card.used_by_email is None:
-        gift_card.used_by = (
-            used_by_user
-            if used_by_user
-            else User.objects.filter(email=used_by_email).first()
-        )
-        gift_card.used_by_email = used_by_email
+    """Set the user, each time a giftcard is used."""
+    gift_card.used_by = (
+        used_by_user
+        if used_by_user
+        else User.objects.filter(email=used_by_email).first()
+    )
+    gift_card.used_by_email = used_by_email
+    mark_gift_cards_search_index_as_dirty([gift_card])
 
 
 def _update_allocations_for_line(
@@ -1049,9 +1046,8 @@ def update_order_display_gross_prices(order: "Order"):
     """
     channel = order.channel
     tax_configuration = channel.tax_configuration
-    country_code = get_tax_country(
+    country_code = get_active_country(
         channel,
-        order.is_shipping_required(),
         order.shipping_address,
         order.billing_address,
     )

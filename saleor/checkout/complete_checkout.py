@@ -625,7 +625,6 @@ def _prepare_checkout(
     manager: "PluginsManager",
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    tracking_code,
     redirect_url,
 ):
     """Prepare checkout object to complete the checkout process."""
@@ -653,10 +652,6 @@ def _prepare_checkout(
         checkout.redirect_url = redirect_url
         to_update.append("redirect_url")
 
-    if tracking_code and str(tracking_code) != checkout.tracking_code:
-        checkout.tracking_code = tracking_code
-        to_update.append("tracking_code")
-
     if to_update:
         to_update.append("last_change")
         checkout.save(update_fields=to_update)
@@ -666,12 +661,14 @@ def _prepare_checkout_with_transactions(
     manager: "PluginsManager",
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    tracking_code: Optional[str],
     redirect_url: Optional[str],
 ):
     """Prepare checkout object with transactions to complete the checkout process."""
     clean_billing_address(checkout_info, CheckoutErrorCode)
-    if checkout_info.checkout.authorize_status != CheckoutAuthorizeStatus.FULL:
+    if (
+        checkout_info.checkout.authorize_status != CheckoutAuthorizeStatus.FULL
+        and not checkout_info.channel.allow_unpaid_orders
+    ):
         raise ValidationError(
             {
                 "id": ValidationError(
@@ -680,21 +677,35 @@ def _prepare_checkout_with_transactions(
                 )
             }
         )
-
+    if checkout_info.checkout.voucher_code and not checkout_info.voucher:
+        raise ValidationError(
+            {
+                "voucher_code": ValidationError(
+                    "Voucher not applicable",
+                    code=CheckoutErrorCode.VOUCHER_NOT_APPLICABLE.value,
+                )
+            }
+        )
+    _validate_gift_cards(checkout_info.checkout)
     _prepare_checkout(
         manager=manager,
         checkout_info=checkout_info,
         lines=lines,
-        tracking_code=tracking_code,
         redirect_url=redirect_url,
     )
+    try:
+        manager.preprocess_order_creation(checkout_info, lines)
+    except TaxError as tax_error:
+        raise ValidationError(
+            f"Unable to calculate taxes - {str(tax_error)}",
+            code=CheckoutErrorCode.TAX_ERROR.value,
+        )
 
 
 def _prepare_checkout_with_payment(
     manager: "PluginsManager",
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    tracking_code: Optional[str],
     redirect_url: Optional[str],
     payment: Optional[Payment],
 ):
@@ -710,7 +721,6 @@ def _prepare_checkout_with_payment(
         manager=manager,
         checkout_info=checkout_info,
         lines=lines,
-        tracking_code=tracking_code,
         redirect_url=redirect_url,
     )
 
@@ -793,7 +803,6 @@ def complete_checkout_pre_payment_part(
     lines: Iterable["CheckoutLineInfo"],
     user,
     site_settings=None,
-    tracking_code=None,
     redirect_url=None,
 ) -> Tuple[Optional[Payment], Optional[str], dict]:
     """Logic required to process checkout before payment.
@@ -815,7 +824,6 @@ def complete_checkout_pre_payment_part(
             manager=manager,
             checkout_info=checkout_info,
             lines=lines,
-            tracking_code=tracking_code,
             redirect_url=redirect_url,
             payment=payment,
         )
@@ -1043,7 +1051,6 @@ def _create_order_from_checkout(
     manager: "PluginsManager",
     user: Optional[User],
     app: Optional["App"],
-    tracking_code: Optional[str] = None,
     metadata_list: Optional[List] = None,
     private_metadata_list: Optional[List] = None,
 ):
@@ -1110,7 +1117,6 @@ def _create_order_from_checkout(
     order = Order.objects.create(  # type: ignore[misc] # see below:
         status=status,
         language_code=checkout_info.checkout.language_code,
-        tracking_client_id=tracking_code or "",
         total=taxed_total,  # money field not supported by mypy_django_plugin
         shipping_tax_rate=shipping_tax_rate,
         voucher=voucher,
@@ -1211,7 +1217,6 @@ def create_order_from_checkout(
     manager: "PluginsManager",
     user: Optional["User"],
     app: Optional["App"],
-    tracking_code: Optional[str],
     delete_checkout: bool = True,
     metadata_list: Optional[List] = None,
     private_metadata_list: Optional[List] = None,
@@ -1247,7 +1252,7 @@ def create_order_from_checkout(
             return order
 
         # Fetching checkout info inside the transaction block with select_for_update
-        # enure that we are processing checkout on the current data.
+        # ensure that we are processing checkout on the current data.
         checkout_lines, _ = fetch_checkout_lines(checkout, voucher=voucher)
         checkout_info = fetch_checkout_info(
             checkout, checkout_lines, manager, voucher=voucher
@@ -1261,7 +1266,6 @@ def create_order_from_checkout(
                 manager=manager,
                 user=user,
                 app=app,
-                tracking_code=tracking_code,
                 metadata_list=metadata_list,
                 private_metadata_list=private_metadata_list,
             )
@@ -1302,7 +1306,6 @@ def complete_checkout(
     user: Optional["User"],
     app: Optional["App"],
     site_settings: Optional["SiteSettings"] = None,
-    tracking_code: Optional[str] = None,
     redirect_url: Optional[str] = None,
     metadata_list: Optional[List] = None,
     private_metadata_list: Optional[List] = None,
@@ -1315,10 +1318,15 @@ def complete_checkout(
     # paid is used. In case when we have TRANSACTION_FLOW we use transaction flow to
     # finalize the checkout.
     checkout_is_zero = checkout_info.checkout.total.gross.amount == Decimal(0)
-    if transactions or (
-        checkout_is_zero
-        and checkout_info.channel.order_mark_as_paid_strategy
+    is_transaction_flow = (
+        checkout_info.channel.order_mark_as_paid_strategy
         == MarkAsPaidStrategy.TRANSACTION_FLOW
+    )
+    if (
+        transactions
+        or checkout_info.channel.allow_unpaid_orders
+        or checkout_is_zero
+        and is_transaction_flow
     ):
         order = complete_checkout_with_transaction(
             manager=manager,
@@ -1326,7 +1334,6 @@ def complete_checkout(
             lines=lines,
             user=user,
             app=app,
-            tracking_code=tracking_code,
             redirect_url=redirect_url,
             metadata_list=metadata_list,
             private_metadata_list=private_metadata_list,
@@ -1341,7 +1348,6 @@ def complete_checkout(
         user=user,
         app=app,
         site_settings=site_settings,
-        tracking_code=tracking_code,
         redirect_url=redirect_url,
         metadata_list=metadata_list,
         private_metadata_list=private_metadata_list,
@@ -1354,29 +1360,41 @@ def complete_checkout_with_transaction(
     lines: Iterable["CheckoutLineInfo"],
     user: Optional["User"],
     app: Optional["App"],
-    tracking_code: Optional[str] = None,
     redirect_url: Optional[str] = None,
     metadata_list: Optional[List] = None,
     private_metadata_list: Optional[List] = None,
 ) -> Optional[Order]:
-    _prepare_checkout_with_transactions(
-        manager=manager,
-        checkout_info=checkout_info,
-        lines=lines,
-        tracking_code=tracking_code,
-        redirect_url=redirect_url,
-    )
+    try:
+        _prepare_checkout_with_transactions(
+            manager=manager,
+            checkout_info=checkout_info,
+            lines=lines,
+            redirect_url=redirect_url,
+        )
 
-    return create_order_from_checkout(
-        checkout_info=checkout_info,
-        manager=manager,
-        user=user,
-        app=app,
-        tracking_code=tracking_code,
-        delete_checkout=True,
-        metadata_list=metadata_list,
-        private_metadata_list=private_metadata_list,
-    )
+        return create_order_from_checkout(
+            checkout_info=checkout_info,
+            manager=manager,
+            user=user,
+            app=app,
+            delete_checkout=True,
+            metadata_list=metadata_list,
+            private_metadata_list=private_metadata_list,
+        )
+    except NotApplicable:
+        raise ValidationError(
+            {
+                "voucher_code": ValidationError(
+                    "Voucher not applicable",
+                    code=CheckoutErrorCode.VOUCHER_NOT_APPLICABLE.value,
+                )
+            }
+        )
+    except InsufficientStock as e:
+        error = prepare_insufficient_stock_checkout_validation_error(e)
+        raise error
+    except GiftCardNotApplicable as e:
+        raise ValidationError({"gift_cards": e})
 
 
 def complete_checkout_with_payment(
@@ -1387,7 +1405,6 @@ def complete_checkout_with_payment(
     user,
     app,
     site_settings=None,
-    tracking_code=None,
     redirect_url=None,
     metadata_list: Optional[List] = None,
     private_metadata_list: Optional[List] = None,
@@ -1416,7 +1433,6 @@ def complete_checkout_with_payment(
             lines=lines,
             user=user,
             site_settings=site_settings,
-            tracking_code=tracking_code,
             redirect_url=redirect_url,
         )
 

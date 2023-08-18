@@ -316,7 +316,6 @@ def checkout_with_item(checkout, product):
 @pytest.fixture
 def checkout_with_item_and_transaction_item(checkout_with_item):
     TransactionItem.objects.create(
-        status="Captured",
         name="Credit card",
         psp_reference="PSP ref",
         available_actions=["refund"],
@@ -481,6 +480,16 @@ def checkout_with_shipping_required(checkout_with_item, product):
 @pytest.fixture
 def checkout_with_item_and_shipping_method(checkout_with_item, shipping_method):
     checkout = checkout_with_item
+    checkout.shipping_method = shipping_method
+    checkout.save()
+    return checkout
+
+
+@pytest.fixture
+def checkout_with_item_and_voucher_and_shipping_method(
+    checkout_with_item_and_voucher, shipping_method
+):
+    checkout = checkout_with_item_and_voucher
     checkout.shipping_method = shipping_method
     checkout.save()
     return checkout
@@ -755,6 +764,45 @@ def checkout_with_item_and_preorder_item(
 
 
 @pytest.fixture
+def checkout_with_problems(
+    checkout_with_items,
+    product_type,
+    address,
+    shipping_method,
+    category,
+    default_tax_class,
+    channel_USD,
+    warehouse,
+):
+    checkout_with_items.shipping_address = address
+    checkout_with_items.billing_address = address
+    checkout_with_items.shipping_method = shipping_method
+    checkout_with_items.save(
+        update_fields=["shipping_address", "shipping_method", "billing_address"]
+    )
+
+    first_line = checkout_with_items.lines.first()
+    first_line.variant.track_inventory = True
+    first_line.variant.save(update_fields=["track_inventory"])
+
+    product_type = first_line.variant.product.product_type
+    product_type.is_shipping_required = True
+    product_type.save(update_fields=["is_shipping_required"])
+
+    first_line.variant.stocks.all().delete()
+
+    second_line = checkout_with_items.lines.last()
+
+    available_at = datetime.datetime.now(pytz.UTC) + datetime.timedelta(days=5)
+    product = second_line.variant.product
+    product.channel_listings.update(
+        available_for_purchase_at=available_at, is_published=False
+    )
+
+    return checkout_with_items
+
+
+@pytest.fixture
 def address(db):  # pylint: disable=W0613
     return Address.objects.create(
         first_name="John",
@@ -824,6 +872,7 @@ def graphql_address_data():
         "city": "Wrocław",
         "countryArea": "",
         "phone": "+48321321888",
+        "metadata": [{"key": "public", "value": "public_value"}],
     }
 
 
@@ -1023,19 +1072,10 @@ def orders_from_checkout(customer_user, checkout):
 
 
 @pytest.fixture
-def order_from_checkout_JPY(customer_user, checkout_JPY):
-    return Order.objects.create(
-        user=customer_user,
-        status=OrderStatus.CANCELED,
-        channel=checkout_JPY.channel,
-        checkout_token=checkout_JPY.token,
-    )
-
-
-@pytest.fixture
-def order(customer_user, channel_USD):
+def order_generator(customer_user, channel_USD):
     address = customer_user.default_billing_address.get_copy()
-    order = Order.objects.create(
+
+    def create_order(
         billing_address=address,
         channel=channel_USD,
         currency=channel_USD.currency_code,
@@ -1046,31 +1086,38 @@ def order(customer_user, channel_USD):
         should_refresh_prices=False,
         metadata={"key": "value"},
         private_metadata={"secret_key": "secret_value"},
-    )
-    return order
+        checkout_token="",
+        status=OrderStatus.UNFULFILLED,
+        search_vector_class=None,
+    ):
+        order = Order.objects.create(
+            billing_address=billing_address,
+            channel=channel,
+            currency=currency,
+            shipping_address=shipping_address,
+            user_email=user_email,
+            user=user,
+            origin=origin,
+            should_refresh_prices=should_refresh_prices,
+            metadata=metadata,
+            private_metadata=private_metadata,
+            checkout_token=checkout_token,
+            status=status,
+        )
+        if search_vector_class:
+            search_vector = search_vector_class(
+                *prepare_order_search_vector_value(order)
+            )
+            order.search_vector = search_vector
+            order.save(update_fields=["search_vector"])
+        return order
+
+    return create_order
 
 
 @pytest.fixture
-def order_with_search_vector_value(order):
-    order.search_vector = FlatConcatSearchVector(
-        *prepare_order_search_vector_value(order)
-    )
-    order.save(update_fields=["search_vector"])
-    return order
-
-
-@pytest.fixture
-def order_JPY(customer_user, channel_JPY):
-    address = customer_user.default_billing_address.get_copy()
-    return Order.objects.create(
-        billing_address=address,
-        channel=channel_JPY,
-        currency=channel_JPY.currency_code,
-        shipping_address=address,
-        user_email=customer_user.email,
-        user=customer_user,
-        origin=OrderOrigin.CHECKOUT,
-    )
+def order(order_generator):
+    return order_generator()
 
 
 @pytest.fixture
@@ -1078,6 +1125,74 @@ def order_unconfirmed(order):
     order.status = OrderStatus.UNCONFIRMED
     order.save(update_fields=["status"])
     return order
+
+
+@pytest.fixture
+def product_type_generator(
+    attribute_generator, attribute_value_generator, default_tax_class
+):
+    def create_product_type(
+        name="Default Type",
+        slug="default-type",
+        kind=ProductTypeKind.NORMAL,
+        has_variants=True,
+        is_shipping_required=True,
+        tax_class=default_tax_class,
+        product_attributes=None,
+        variant_attributes=None,
+    ):
+        product_type = ProductType.objects.create(
+            name=name,
+            slug=slug,
+            kind=kind,
+            has_variants=has_variants,
+            is_shipping_required=is_shipping_required,
+            tax_class=tax_class,
+        )
+        if product_attributes is None:
+            product_attribute = attribute_generator(
+                external_reference="colorAttributeExternalReference",
+                slug="color",
+                name="Color",
+                type=AttributeType.PRODUCT_TYPE,
+                filterable_in_storefront=True,
+                filterable_in_dashboard=True,
+                available_in_grid=True,
+            )
+
+            attribute_value_generator(
+                external_reference="colorAttributeValue1ExternalReference",
+                name="Red",
+                slug="red",
+                attribute=product_attribute,
+            )
+
+            product_attributes = [product_attribute]
+        if variant_attributes is None:
+            variant_attribute = attribute_generator(
+                external_reference="sizeAttributeExternalReference",
+                slug="size",
+                name="Size",
+                type=AttributeType.PRODUCT_TYPE,
+                filterable_in_storefront=True,
+                filterable_in_dashboard=True,
+                available_in_grid=True,
+            )
+
+            attribute_value_generator(
+                name="Small",
+                slug="small",
+                attribute=variant_attribute,
+            )
+            variant_attributes = [variant_attribute]
+
+        product_type.product_attributes.add(*product_attributes)
+        product_type.variant_attributes.add(
+            *variant_attributes, through_defaults={"variant_selection": True}
+        )
+        return product_type
+
+    return create_product_type
 
 
 @pytest.fixture
@@ -1214,6 +1329,24 @@ def shipping_zones(db, channel_USD, channel_PLN):
         ]
     )
     return [shipping_zone_poland, shipping_zone_usa]
+
+
+def chunks(it, n):
+    for i in range(0, len(it), n):
+        yield it[i : i + n]
+
+
+@pytest.fixture
+def shipping_zones_with_warehouses(address, channel_USD):
+    zones = [ShippingZone(name=f"{i}_zone") for i in range(10)]
+    warehouses = [Warehouse(slug=f"{i}_warehouse", address=address) for i in range(20)]
+    warehouses = Warehouse.objects.bulk_create(warehouses)
+    warehouses_in_batches = list(chunks(warehouses, 2))
+    for i, zone in enumerate(ShippingZone.objects.bulk_create(zones)):
+        zone.channels.add(channel_USD)
+        for warehouse in warehouses_in_batches[i]:
+            zone.warehouses.add(warehouse)
+    return zones
 
 
 @pytest.fixture
@@ -1358,7 +1491,129 @@ def shipping_method_channel_PLN(shipping_zone, channel_PLN):
 
 
 @pytest.fixture
-def color_attribute(db):
+def attribute_generator():
+    def create_attribute(
+        external_reference="attributeExtRef",
+        slug="attr",
+        name="Attr",
+        type=AttributeType.PRODUCT_TYPE,
+        filterable_in_storefront=True,
+        filterable_in_dashboard=True,
+        available_in_grid=True,
+    ):
+        attribute, _ = Attribute.objects.get_or_create(
+            external_reference=external_reference,
+            slug=slug,
+            name=name,
+            type=type,
+            filterable_in_storefront=filterable_in_storefront,
+            filterable_in_dashboard=filterable_in_dashboard,
+            available_in_grid=available_in_grid,
+        )
+
+        return attribute
+
+    return create_attribute
+
+
+@pytest.fixture
+def attribute_value_generator(attribute_generator):
+    def create_attribute_value(
+        attribute=None,
+        external_reference=None,
+        name="Attr Value",
+        slug="attr-value",
+        value="",
+    ):
+        if attribute is None:
+            attribute = attribute_generator()
+        attribute_value, _ = AttributeValue.objects.get_or_create(
+            attribute=attribute,
+            external_reference=external_reference,
+            name=name,
+            slug=slug,
+            value=value,
+        )
+
+        return attribute_value
+
+    return create_attribute_value
+
+
+@pytest.fixture
+def attribute_values_generator(attribute_generator):
+    def create_attribute_values(
+        external_references=None,
+        names=None,
+        slugs=None,
+        attribute=None,
+        values=None,
+    ):
+        if attribute is None:
+            attribute = attribute_generator()
+
+        if slugs is None:
+            slugs = ["attr-value"]
+
+        if external_references is None:
+            external_references = [None] * len(slugs)
+
+        if names is None:
+            names = [""] * len(slugs)
+
+        if values is None:
+            values = [""] * len(slugs)
+
+        AttributeValue.objects.bulk_create(
+            [
+                AttributeValue(
+                    attribute=attribute,
+                    external_reference=ext_ref,
+                    name=name,
+                    slug=slug,
+                    value=value,
+                )
+                for slug, name, ext_ref, value in zip(
+                    slugs, names, external_references, values
+                )
+            ],
+            ignore_conflicts=True,
+        )
+
+        return list(AttributeValue.objects.filter(slug__in=slugs))
+
+    return create_attribute_values
+
+
+@pytest.fixture
+def color_attribute(db, attribute_generator, attribute_values_generator):
+    attribute = attribute_generator(
+        external_reference="colorAttributeExternalReference",
+        slug="color",
+        name="Color",
+        type=AttributeType.PRODUCT_TYPE,
+        filterable_in_storefront=True,
+        filterable_in_dashboard=True,
+        available_in_grid=True,
+    )
+    external_references = [
+        "colorAttributeValue1ExternalReference",
+        "colorAttributeValue2ExternalReference",
+    ]
+    slugs = ["red", "blue"]
+    names = ["Red", "Blue"]
+    attribute_values_generator(
+        attribute=attribute,
+        external_references=external_references,
+        names=names,
+        slugs=slugs,
+    )
+
+    return attribute
+
+
+@pytest.fixture
+def color_attribute_with_translations(db):
     attribute = Attribute.objects.create(
         slug="color",
         name="Color",
@@ -1367,8 +1622,13 @@ def color_attribute(db):
         filterable_in_dashboard=True,
         available_in_grid=True,
     )
-    AttributeValue.objects.create(attribute=attribute, name="Red", slug="red")
+    value1 = AttributeValue.objects.create(attribute=attribute, name="Red", slug="red")
     AttributeValue.objects.create(attribute=attribute, name="Blue", slug="blue")
+    attribute.translations.create(language_code="pl", name="Czerwony")
+    attribute.translations.create(language_code="de", name="Rot")
+    value1.translations.create(language_code="pl", plain_text="Old Kolor")
+    value1.translations.create(language_code="de", name="Rot", plain_text="Old Kolor")
+
     return attribute
 
 
@@ -1662,8 +1922,11 @@ def pink_attribute_value(color_attribute):  # pylint: disable=W0613
 
 
 @pytest.fixture
-def size_attribute(db):  # pylint: disable=W0613
-    attribute = Attribute.objects.create(
+def size_attribute(
+    db, attribute_generator, attribute_values_generator
+):  # pylint: disable=W0613
+    attribute = attribute_generator(
+        external_reference="sizeAttributeExternalReference",
         slug="size",
         name="Size",
         type=AttributeType.PRODUCT_TYPE,
@@ -1671,8 +1934,15 @@ def size_attribute(db):  # pylint: disable=W0613
         filterable_in_dashboard=True,
         available_in_grid=True,
     )
-    AttributeValue.objects.create(attribute=attribute, name="Small", slug="small")
-    AttributeValue.objects.create(attribute=attribute, name="Big", slug="big")
+
+    slugs = ["small", "big"]
+    names = ["Small", "Big"]
+    attribute_values_generator(
+        attribute=attribute,
+        names=names,
+        slugs=slugs,
+    )
+
     return attribute
 
 
@@ -1966,6 +2236,14 @@ def image():
 
 
 @pytest.fixture
+def icon_image():
+    img_data = BytesIO()
+    image = Image.new("RGB", size=(1, 1))
+    image.save(img_data, format="PNG")
+    return SimpleUploadedFile("logo.png", img_data.getvalue())
+
+
+@pytest.fixture
 def image_list():
     img_data_1 = BytesIO()
     image_1 = Image.new("RGB", size=(1, 1))
@@ -1981,8 +2259,23 @@ def image_list():
 
 
 @pytest.fixture
-def category(db):  # pylint: disable=W0613
-    return Category.objects.create(name="Default", slug="default")
+def category_generator():
+    def create_category(
+        name="Default",
+        slug="default",
+    ):
+        category = Category.objects.create(
+            name=name,
+            slug=slug,
+        )
+        return category
+
+    return create_category
+
+
+@pytest.fixture
+def category(category_generator):  # pylint: disable=W0613
+    return category_generator()
 
 
 @pytest.fixture
@@ -1997,6 +2290,14 @@ def categories(db):
     category1 = Category.objects.create(name="Category1", slug="cat1")
     category2 = Category.objects.create(name="Category2", slug="cat2")
     return [category1, category2]
+
+
+@pytest.fixture
+def category_list():
+    category_1 = Category.objects.create(name="Category 1", slug="category-1")
+    category_2 = Category.objects.create(name="Category 2", slug="category-2")
+    category_3 = Category.objects.create(name="Category 3", slug="category-3")
+    return category_1, category_2, category_3
 
 
 @pytest.fixture
@@ -2123,20 +2424,22 @@ def permission_manage_taxes():
 
 
 @pytest.fixture
-def product_type(color_attribute, size_attribute, default_tax_class):
-    product_type = ProductType.objects.create(
-        name="Default Type",
-        slug="default-type",
-        kind=ProductTypeKind.NORMAL,
-        has_variants=True,
-        is_shipping_required=True,
-        tax_class=default_tax_class,
+def product_type(product_type_generator):
+    return product_type_generator()
+
+
+@pytest.fixture
+def product_type_list():
+    product_type_1 = ProductType.objects.create(
+        name="Type 1", slug="type-1", kind=ProductTypeKind.NORMAL
     )
-    product_type.product_attributes.add(color_attribute)
-    product_type.variant_attributes.add(
-        size_attribute, through_defaults={"variant_selection": True}
+    product_type_2 = ProductType.objects.create(
+        name="Type 2", slug="type-2", kind=ProductTypeKind.NORMAL
     )
-    return product_type
+    product_type_3 = ProductType.objects.create(
+        name="Type 3", slug="type-3", kind=ProductTypeKind.NORMAL
+    )
+    return product_type_1, product_type_2, product_type_3
 
 
 @pytest.fixture
@@ -2228,6 +2531,14 @@ def product(product_type, category, warehouse, channel_USD, default_tax_class):
     Stock.objects.create(warehouse=warehouse, product_variant=variant, quantity=10)
 
     associate_attribute_values_to_instance(variant, variant_attr, variant_attr_value)
+
+    return product
+
+
+@pytest.fixture
+def product_with_translations(product):
+    product.translations.create(language_code="pl", name="OldProduct PL")
+    product.translations.create(language_code="de", name="OldProduct DE")
 
     return product
 
@@ -2788,6 +3099,13 @@ def variant(product, channel_USD) -> ProductVariant:
         currency=channel_USD.currency_code,
     )
     return product_variant
+
+
+@pytest.fixture
+def variant_with_translations(variant):
+    variant.translations.create(language_code="pl", name="OldVariant PL")
+    variant.translations.create(language_code="de", name="OldVariant DE")
+    return variant
 
 
 @pytest.fixture
@@ -3669,7 +3987,11 @@ def gift_card_shippable_order_line(order, gift_card_shippable_variant, warehouse
 
 
 @pytest.fixture
-def order_line_JPY(order_JPY, product_in_channel_JPY):
+def order_line_JPY(order_generator, channel_JPY, product_in_channel_JPY):
+    order_JPY = order_generator(
+        channel=channel_JPY,
+        currency=channel_JPY.currency_code,
+    )
     product = product_in_channel_JPY
     variant = product_in_channel_JPY.variants.get()
     channel = order_JPY.channel
@@ -5114,6 +5436,17 @@ def permission_group_manage_apps(permission_manage_apps, staff_users):
 
 
 @pytest.fixture
+def permission_group_handle_payments(permission_manage_payments, staff_users):
+    group = Group.objects.create(
+        name="Manage apps group.", restricted_access_to_channels=False
+    )
+    group.permissions.add(permission_manage_payments)
+
+    group.user_set.add(staff_users[1])
+    return group
+
+
+@pytest.fixture
 def permission_group_all_perms_all_channels(
     permission_manage_users, staff_users, channel_USD, channel_PLN
 ):
@@ -6036,6 +6369,7 @@ def webhook_app(
     permission_manage_products,
     permission_manage_staff,
     permission_manage_orders,
+    permission_manage_users,
 ):
     app = App.objects.create(name="Webhook app", is_active=True)
     app.permissions.add(permission_manage_shipping)
@@ -6045,6 +6379,7 @@ def webhook_app(
     app.permissions.add(permission_manage_products)
     app.permissions.add(permission_manage_staff)
     app.permissions.add(permission_manage_orders)
+    app.permissions.add(permission_manage_users)
     return app
 
 
@@ -6147,6 +6482,27 @@ def shipping_app(db, permission_manage_shipping):
 
 
 @pytest.fixture
+def list_stored_payment_methods_app(db, permission_manage_payments):
+    app = App.objects.create(
+        name="List payment methods app",
+        is_active=True,
+        identifier="saleor.payment.app.list.stored.method",
+    )
+    app.tokens.create(name="Default")
+    app.permissions.add(permission_manage_payments)
+
+    webhook = Webhook.objects.create(
+        name="list_stored_payment_methods",
+        app=app,
+        target_url="http://localhost:8000/endpoint/",
+    )
+    webhook.events.create(
+        event_type=WebhookEventSyncType.LIST_STORED_PAYMENT_METHODS,
+    )
+    return app
+
+
+@pytest.fixture
 def tax_app(db, permission_handle_taxes):
     app = App.objects.create(name="Tax App", is_active=True)
     app.permissions.add(permission_handle_taxes)
@@ -6217,6 +6573,13 @@ def webhook(app):
     webhook = Webhook.objects.create(
         name="Simple webhook", app=app, target_url="http://www.example.com/test"
     )
+    webhook.events.create(event_type=WebhookEventAsyncType.ORDER_CREATED)
+    return webhook
+
+
+@pytest.fixture
+def webhook_without_name(app):
+    webhook = Webhook.objects.create(app=app, target_url="http://www.example.com/test")
     webhook.events.create(event_type=WebhookEventAsyncType.ORDER_CREATED)
     return webhook
 
@@ -6885,6 +7248,28 @@ def event_attempt(event_delivery):
 
 
 @pytest.fixture
+def webhook_list_stored_payment_methods_response():
+    return {
+        "paymentMethods": [
+            {
+                "id": "method-1",
+                "supportedPaymentFlows": ["INTERACTIVE"],
+                "type": "Credit Card",
+                "creditCardInfo": {
+                    "brand": "visa",
+                    "lastDigits": "1234",
+                    "expMonth": 1,
+                    "expYear": 2023,
+                    "firstDigits": "123456",
+                },
+                "name": "***1234",
+                "data": {"some": "data"},
+            }
+        ]
+    }
+
+
+@pytest.fixture
 def webhook_response():
     return WebhookResponse(
         content="test_content",
@@ -7083,3 +7468,13 @@ def transaction_session_response():
         "externalUrl": "http://127.0.0.1:9090/external-reference",
         "message": "Message related to the payment",
     }
+
+
+class Info:
+    def __init__(self, request):
+        self.context = request
+
+
+@pytest.fixture
+def dummy_info(request):
+    return Info(request)

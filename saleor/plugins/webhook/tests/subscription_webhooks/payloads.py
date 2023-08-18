@@ -5,7 +5,37 @@ from django.utils import timezone
 
 from ..... import __version__
 from .....graphql.attribute.enums import AttributeInputTypeEnum, AttributeTypeEnum
+from .....graphql.shop.types import SHOP_ID
 from .....product.models import Product
+
+
+def generate_account_events_payload(customer_user):
+    payload = {
+        **generate_customer_payload(customer_user),
+    }
+
+    return json.dumps(payload)
+
+
+def generate_account_requested_events_payload(customer_user, channel, new_email=None):
+    payload = {
+        **generate_customer_payload(customer_user),
+        **{
+            "token": "token",
+            "redirectUrl": "http://www.mirumee.com?token=token",
+            "channel": {
+                "slug": channel.slug,
+                "id": graphene.Node.to_global_id("Channel", channel.id),
+            }
+            if channel
+            else None,
+            "shop": {"domain": {"host": "mirumee.com", "url": "http://mirumee.com/"}},
+        },
+    }
+    if new_email:
+        payload["newEmail"] = new_email
+
+    return json.dumps(payload)
 
 
 def generate_app_payload(app, app_global_id):
@@ -120,7 +150,7 @@ def generate_customer_payload(customer):
             "email": customer.email,
             "firstName": customer.first_name,
             "lastName": customer.last_name,
-            "isStaff": False,
+            "isStaff": customer.is_staff,
             "isActive": customer.is_active,
             "addresses": [
                 {"id": graphene.Node.to_global_id("Address", address.pk)}
@@ -129,9 +159,13 @@ def generate_customer_payload(customer):
             "languageCode": customer.language_code.upper(),
             "defaultShippingAddress": (
                 generate_address_payload(customer.default_shipping_address)
+                if customer.default_shipping_address
+                else None
             ),
             "defaultBillingAddress": (
                 generate_address_payload(customer.default_billing_address)
+                if customer.default_billing_address
+                else None
             ),
         }
     }
@@ -463,3 +497,13 @@ def generate_payment_payload(payment):
             "isActive": payment.is_active,
         }
     }
+
+
+def generate_shop_payload():
+    return json.dumps(
+        {
+            "shop": {
+                "id": graphene.Node.to_global_id("Shop", SHOP_ID),
+            }
+        }
+    )

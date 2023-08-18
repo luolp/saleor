@@ -6,12 +6,18 @@ from rx import Observable
 from ... import __version__
 from ...account.models import User
 from ...attribute.models import AttributeTranslation, AttributeValueTranslation
+from ...channel.models import Channel
 from ...core.prices import quantize_price
 from ...discount.models import SaleTranslation, VoucherTranslation
+from ...graphql.shop.types import Shop
 from ...menu.models import MenuItemTranslation
 from ...order.utils import get_all_shipping_methods_for_order
 from ...page.models import PageTranslation
-from ...payment.interface import TransactionActionData, TransactionSessionData
+from ...payment.interface import (
+    ListStoredPaymentMethodsRequestData,
+    TransactionActionData,
+    TransactionSessionData,
+)
 from ...product.models import (
     CategoryTranslation,
     CollectionTranslation,
@@ -39,10 +45,12 @@ from ..core.descriptions import (
     ADDED_IN_312,
     ADDED_IN_313,
     ADDED_IN_314,
+    ADDED_IN_315,
     PREVIEW_FEATURE,
 )
 from ..core.doc_category import (
     DOC_CATEGORY_CHECKOUT,
+    DOC_CATEGORY_GIFT_CARDS,
     DOC_CATEGORY_ORDERS,
     DOC_CATEGORY_PAYMENTS,
     DOC_CATEGORY_PRODUCTS,
@@ -53,7 +61,7 @@ from ..core.scalars import JSON, PositiveDecimal
 from ..core.types import NonNullList, SubscriptionObjectType
 from ..core.types.order_or_checkout import OrderOrCheckout
 from ..order.dataloaders import OrderByIdLoader
-from ..order.types import Order
+from ..order.types import Order, OrderGrantedRefund
 from ..payment.enums import TransactionActionEnum
 from ..payment.types import TransactionItem
 from ..plugins.dataloaders import plugin_manager_promise_callback
@@ -128,6 +136,124 @@ class Event(graphene.Interface):
         if not info.context.requestor:
             return None
         return info.context.requestor
+
+
+class AccountOperationBase(AbstractType):
+    redirect_url = graphene.String(
+        description="The URL to redirect the user after he accepts the request.",
+        required=False,
+    )
+    user = graphene.Field(
+        UserType,
+        description="The user the event relates to.",
+    )
+    channel = graphene.Field(
+        "saleor.graphql.channel.types.Channel",
+        description="The channel data.",
+    )
+    token = graphene.String(description="The token required to confirm request.")
+    shop = graphene.Field(Shop, description="Shop data.")
+
+    @staticmethod
+    def resolve_user(root, _info: ResolveInfo):
+        _, data = root
+        return data["user"]
+
+    @staticmethod
+    def resolve_redirect_url(root, _info: ResolveInfo):
+        _, data = root
+        return data.get("redirect_url")
+
+    @staticmethod
+    def resolve_channel(root, _info: ResolveInfo):
+        _, data = root
+        return Channel.objects.get(slug=data["channel_slug"])
+
+    @staticmethod
+    def resolve_token(root, _info: ResolveInfo):
+        _, data = root
+        return data["token"]
+
+    @staticmethod
+    def resolve_shop(root, _info: ResolveInfo):
+        return Shop()
+
+
+class AccountConfirmed(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = "Event sent when account is confirmed." + ADDED_IN_315
+
+
+class AccountConfirmationRequested(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = "User"
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = (
+            "Event sent when account confirmation requested. This event is always sent."
+            " enableAccountConfirmationByEmail flag set to True is not required."
+            + ADDED_IN_315
+        )
+
+
+class AccountChangeEmailRequested(SubscriptionObjectType, AccountOperationBase):
+    new_email = graphene.String(
+        description="The new email address the user wants to change to.",
+    )
+
+    class Meta:
+        root_type = "User"
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = (
+            "Event sent when account change email is requested." + ADDED_IN_315
+        )
+
+    @staticmethod
+    def resolve_new_email(root, _info: ResolveInfo):
+        _, data = root
+        return data["new_email"]
+
+
+class AccountEmailChanged(SubscriptionObjectType, AccountOperationBase):
+    new_email = graphene.String(
+        description="The new email address.",
+    )
+
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = "Event sent when account email is changed." + ADDED_IN_315
+
+
+class AccountSetPasswordRequested(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = (
+            "Event sent when setting a new password is requested." + ADDED_IN_315
+        )
+
+
+class AccountDeleteRequested(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = "User"
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = "Event sent when account delete is requested." + ADDED_IN_315
+
+
+class AccountDeleted(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = "Event sent when account is deleted." + ADDED_IN_315
 
 
 class AddressBase(AbstractType):
@@ -362,6 +488,14 @@ class ChannelStatusChanged(SubscriptionObjectType, ChannelBase):
         description = "Event sent when channel status has changed." + ADDED_IN_32
 
 
+class ChannelMetadataUpdated(SubscriptionObjectType, ChannelBase):
+    class Meta:
+        root_type = "Channel"
+        enable_dry_run = True
+        interfaces = (Event,)
+        description = "Event sent when channel metadata is updated." + ADDED_IN_315
+
+
 class OrderBase(AbstractType):
     order = graphene.Field(
         "saleor.graphql.order.types.Order",
@@ -561,12 +695,13 @@ class GiftCardSent(SubscriptionObjectType, GiftCardBase):
     )
 
     class Meta:
-        root_type = "GiftCard"
-        enable_dry_run = True
+        root_type = None
+        enable_dry_run = False
         interfaces = (Event,)
         description = (
             "Event sent when gift card is e-mailed." + ADDED_IN_313 + PREVIEW_FEATURE
         )
+        doc_category = DOC_CATEGORY_GIFT_CARDS
 
     @staticmethod
     def resolve_gift_card(root, info: ResolveInfo):
@@ -1420,6 +1555,17 @@ class StaffDeleted(SubscriptionObjectType, UserBase):
         description = "Event sent when staff user is deleted." + ADDED_IN_35
 
 
+class StaffSetPasswordRequested(SubscriptionObjectType, AccountOperationBase):
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = (
+            "Event sent when setting a new password for staff is requested."
+            + ADDED_IN_315
+        )
+
+
 class TransactionAction(SubscriptionObjectType, AbstractType):
     action_type = graphene.Field(
         TransactionActionEnum,
@@ -1464,21 +1610,6 @@ class TransactionActionBase(AbstractType):
         return transaction_action_data
 
 
-class TransactionActionRequest(TransactionActionBase, SubscriptionObjectType):
-    class Meta:
-        root_type = None
-        enable_dry_run = False
-        interfaces = (Event,)
-        description = (
-            "Event sent when transaction action is requested."
-            + ADDED_IN_34
-            + "\n\nDEPRECATED: this subscription will be removed in Saleor 3.14 "
-            + "(Preview Feature). Use `TransactionChargeRequested`, "
-            + "`TransactionRefundRequested`, `TransactionCancelationRequested` instead."
-        )
-        doc_category = DOC_CATEGORY_PAYMENTS
-
-
 class TransactionChargeRequested(TransactionActionBase, SubscriptionObjectType):
     class Meta:
         interfaces = (Event,)
@@ -1493,6 +1624,13 @@ class TransactionChargeRequested(TransactionActionBase, SubscriptionObjectType):
 
 
 class TransactionRefundRequested(TransactionActionBase, SubscriptionObjectType):
+    granted_refund = graphene.Field(
+        OrderGrantedRefund,
+        description="Granted refund related to refund request."
+        + ADDED_IN_315
+        + PREVIEW_FEATURE,
+    )
+
     class Meta:
         interfaces = (Event,)
         root_type = None
@@ -1503,6 +1641,12 @@ class TransactionRefundRequested(TransactionActionBase, SubscriptionObjectType):
             + PREVIEW_FEATURE
         )
         doc_category = DOC_CATEGORY_PAYMENTS
+
+    @staticmethod
+    def resolve_granted_refund(root, _info: ResolveInfo):
+        _, transaction_action_data = root
+        transaction_action_data: TransactionActionData
+        return transaction_action_data.granted_refund
 
 
 class TransactionCancelationRequested(TransactionActionBase, SubscriptionObjectType):
@@ -1612,7 +1756,7 @@ class TransactionSessionBase(SubscriptionObjectType, AbstractType):
     @classmethod
     def resolve_data(cls, root: tuple[str, TransactionSessionData], _info: ResolveInfo):
         _, transaction_session_data = root
-        return transaction_session_data.payment_gateway.data
+        return transaction_session_data.payment_gateway_data.data
 
     @classmethod
     def resolve_merchant_reference(
@@ -1653,6 +1797,48 @@ class TransactionProcessSession(TransactionSessionBase):
             + PREVIEW_FEATURE
         )
         doc_category = DOC_CATEGORY_PAYMENTS
+
+
+class ListStoredPaymentMethods(SubscriptionObjectType):
+    user = graphene.Field(
+        UserType,
+        description=(
+            "The user for which the app should return a list of payment methods."
+        ),
+        required=True,
+    )
+    channel = graphene.Field(
+        "saleor.graphql.channel.types.Channel",
+        description=(
+            "Channel in context which was used to fetch the list of payment methods."
+        ),
+        required=True,
+    )
+
+    class Meta:
+        root_type = None
+        enable_dry_run = False
+        interfaces = (Event,)
+        description = (
+            "List payment methods stored for the user by payment gateway."
+            + ADDED_IN_315
+            + PREVIEW_FEATURE
+        )
+        doc_category = DOC_CATEGORY_PAYMENTS
+
+    @classmethod
+    def resolve_user(
+        cls, root: tuple[str, ListStoredPaymentMethodsRequestData], _info: ResolveInfo
+    ):
+        _, payment_method_data = root
+        return payment_method_data.user
+
+    @classmethod
+    def resolve_channel(
+        cls, root: tuple[str, ListStoredPaymentMethodsRequestData], _info: ResolveInfo
+    ):
+        _, payment_method_data = root
+        return payment_method_data.channel
 
 
 class TransactionItemMetadataUpdated(SubscriptionObjectType):
@@ -1761,6 +1947,20 @@ class VoucherMetadataUpdated(SubscriptionObjectType, VoucherBase):
         enable_dry_run = True
         interfaces = (Event,)
         description = "Event sent when voucher metadata is updated." + ADDED_IN_38
+
+
+class ShopMetadataUpdated(SubscriptionObjectType, AbstractType):
+    shop = graphene.Field(Shop, description="Shop data.")
+
+    class Meta:
+        root_type = "Shop"
+        enable_dry_run = True
+        interfaces = (Event,)
+        description = "Event sent when shop metadata is updated." + ADDED_IN_315
+
+    @staticmethod
+    def resolve_shop(root, _info: ResolveInfo):
+        return Shop()
 
 
 class PaymentBase(AbstractType):
@@ -2026,6 +2226,13 @@ class ThumbnailCreated(SubscriptionObjectType):
 
 
 WEBHOOK_TYPES_MAP = {
+    WebhookEventAsyncType.ACCOUNT_CONFIRMATION_REQUESTED: AccountConfirmationRequested,
+    WebhookEventAsyncType.ACCOUNT_CHANGE_EMAIL_REQUESTED: AccountChangeEmailRequested,
+    WebhookEventAsyncType.ACCOUNT_EMAIL_CHANGED: AccountEmailChanged,
+    WebhookEventAsyncType.ACCOUNT_SET_PASSWORD_REQUESTED: AccountSetPasswordRequested,
+    WebhookEventAsyncType.ACCOUNT_CONFIRMED: AccountConfirmed,
+    WebhookEventAsyncType.ACCOUNT_DELETE_REQUESTED: AccountDeleteRequested,
+    WebhookEventAsyncType.ACCOUNT_DELETED: AccountDeleted,
     WebhookEventAsyncType.ADDRESS_CREATED: AddressCreated,
     WebhookEventAsyncType.ADDRESS_UPDATED: AddressUpdated,
     WebhookEventAsyncType.ADDRESS_DELETED: AddressDeleted,
@@ -2046,6 +2253,7 @@ WEBHOOK_TYPES_MAP = {
     WebhookEventAsyncType.CHANNEL_UPDATED: ChannelUpdated,
     WebhookEventAsyncType.CHANNEL_DELETED: ChannelDeleted,
     WebhookEventAsyncType.CHANNEL_STATUS_CHANGED: ChannelStatusChanged,
+    WebhookEventAsyncType.CHANNEL_METADATA_UPDATED: ChannelMetadataUpdated,
     WebhookEventAsyncType.GIFT_CARD_CREATED: GiftCardCreated,
     WebhookEventAsyncType.GIFT_CARD_UPDATED: GiftCardUpdated,
     WebhookEventAsyncType.GIFT_CARD_DELETED: GiftCardDeleted,
@@ -2130,7 +2338,7 @@ WEBHOOK_TYPES_MAP = {
     WebhookEventAsyncType.STAFF_CREATED: StaffCreated,
     WebhookEventAsyncType.STAFF_UPDATED: StaffUpdated,
     WebhookEventAsyncType.STAFF_DELETED: StaffDeleted,
-    WebhookEventAsyncType.TRANSACTION_ACTION_REQUEST: TransactionActionRequest,
+    WebhookEventAsyncType.STAFF_SET_PASSWORD_REQUESTED: StaffSetPasswordRequested,
     WebhookEventAsyncType.TRANSACTION_ITEM_METADATA_UPDATED: (
         TransactionItemMetadataUpdated
     ),
@@ -2171,4 +2379,6 @@ WEBHOOK_TYPES_MAP = {
     ),
     WebhookEventSyncType.TRANSACTION_INITIALIZE_SESSION: TransactionInitializeSession,
     WebhookEventSyncType.TRANSACTION_PROCESS_SESSION: TransactionProcessSession,
+    WebhookEventAsyncType.SHOP_METADATA_UPDATED: ShopMetadataUpdated,
+    WebhookEventSyncType.LIST_STORED_PAYMENT_METHODS: ListStoredPaymentMethods,
 }

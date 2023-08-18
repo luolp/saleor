@@ -53,12 +53,15 @@ if TYPE_CHECKING:
         CustomerSource,
         GatewayResponse,
         InitializedPaymentResponse,
+        ListStoredPaymentMethodsRequestData,
         PaymentData,
         PaymentGateway,
         PaymentGatewayData,
+        PaymentMethodData,
         TokenConfig,
         TransactionActionData,
         TransactionSessionData,
+        TransactionSessionResult,
     )
     from ..payment.models import TransactionItem
     from ..product.models import (
@@ -71,6 +74,7 @@ if TYPE_CHECKING:
     )
     from ..shipping.interface import ShippingMethodData
     from ..shipping.models import ShippingMethod, ShippingZone
+    from ..site.models import SiteSettings
     from ..tax.models import TaxClass
     from ..thumbnail.models import Thumbnail
     from ..translation.models import Translation
@@ -982,17 +986,6 @@ class PluginsManager(PaymentInterface):
             "permission_group_deleted", default_value, group
         )
 
-    def transaction_action_request(
-        self, payment_data: "TransactionActionData", channel_slug: str
-    ):
-        default_value = None
-        return self.__run_method_on_plugins(
-            "transaction_action_request",
-            default_value,
-            payment_data,
-            channel_slug=channel_slug,
-        )
-
     def transaction_charge_requested(
         self, payment_data: "TransactionActionData", channel_slug: str
     ):
@@ -1045,7 +1038,7 @@ class PluginsManager(PaymentInterface):
     def transaction_initialize_session(
         self,
         transaction_session_data: "TransactionSessionData",
-    ) -> "PaymentGatewayData":
+    ) -> "TransactionSessionResult":
         default_value = None
         return self.__run_method_on_plugins(
             "transaction_initialize_session",
@@ -1057,7 +1050,7 @@ class PluginsManager(PaymentInterface):
     def transaction_process_session(
         self,
         transaction_session_data: "TransactionSessionData",
-    ) -> "PaymentGatewayData":
+    ) -> "TransactionSessionResult":
         default_value = None
         return self.__run_method_on_plugins(
             "transaction_process_session",
@@ -1071,6 +1064,87 @@ class PluginsManager(PaymentInterface):
         return self.__run_method_on_plugins(
             "transaction_item_metadata_updated", default_value, transaction_item
         )
+
+    def account_confirmed(self, user: "User"):
+        default_value = None
+        return self.__run_method_on_plugins("account_confirmed", default_value, user)
+
+    def account_confirmation_requested(
+        self, user: "User", channel_slug: str, token: str, redirect_url: Optional[str]
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "account_confirmation_requested",
+            default_value,
+            user,
+            channel_slug,
+            token=token,
+            redirect_url=redirect_url,
+        )
+
+    def account_change_email_requested(
+        self,
+        user: "User",
+        channel_slug: str,
+        token: str,
+        redirect_url: str,
+        new_email: str,
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "account_change_email_requested",
+            default_value,
+            user,
+            channel_slug,
+            token=token,
+            redirect_url=redirect_url,
+            new_email=new_email,
+        )
+
+    def account_email_changed(
+        self,
+        user: "User",
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "account_email_changed",
+            default_value,
+            user,
+        )
+
+    def account_set_password_requested(
+        self,
+        user: "User",
+        channel_slug: str,
+        token: str,
+        redirect_url: str,
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "account_set_password_requested",
+            default_value,
+            user,
+            channel_slug,
+            token=token,
+            redirect_url=redirect_url,
+        )
+
+    def account_delete_requested(
+        self, user: "User", channel_slug: str, token: str, redirect_url: str
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "account_delete_requested",
+            default_value,
+            user,
+            channel_slug,
+            token=token,
+            redirect_url=redirect_url,
+        )
+
+    def account_deleted(self, user: "User"):
+        default_value = None
+        return self.__run_method_on_plugins("account_deleted", default_value, user)
 
     def address_created(self, address: "Address"):
         default_value = None
@@ -1164,6 +1238,12 @@ class PluginsManager(PaymentInterface):
         default_value = None
         return self.__run_method_on_plugins(
             "channel_status_changed", default_value, channel
+        )
+
+    def channel_metadata_updated(self, channel: "Channel"):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "channel_metadata_updated", default_value, channel
         )
 
     def gift_card_created(self, gift_card: "GiftCard"):
@@ -1290,6 +1370,19 @@ class PluginsManager(PaymentInterface):
         default_value = None
         return self.__run_method_on_plugins("staff_deleted", default_value, staff_user)
 
+    def staff_set_password_requested(
+        self, user: "User", channel_slug: str, token: str, redirect_url: str
+    ):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "staff_set_password_requested",
+            default_value,
+            user,
+            channel_slug,
+            token=token,
+            redirect_url=redirect_url,
+        )
+
     def thumbnail_created(
         self,
         thumbnail: "Thumbnail",
@@ -1339,6 +1432,12 @@ class PluginsManager(PaymentInterface):
         default_value = None
         return self.__run_method_on_plugins(
             "voucher_metadata_updated", default_value, voucher
+        )
+
+    def shop_metadata_updated(self, shop: "SiteSettings"):
+        default_value = None
+        return self.__run_method_on_plugins(
+            "shop_metadata_updated", default_value, shop
         )
 
     def initialize_payment(
@@ -1439,6 +1538,16 @@ class PluginsManager(PaymentInterface):
                 gtw, "list_payment_sources", default_value, customer_id=customer_id
             )
         raise Exception(f"Payment plugin {gateway} is inaccessible!")
+
+    def list_stored_payment_methods(
+        self, list_stored_payment_methods_data: "ListStoredPaymentMethodsRequestData"
+    ) -> list["PaymentMethodData"]:
+        default_value: list = []
+        return self.__run_method_on_plugins(
+            "list_stored_payment_methods",
+            default_value,
+            list_stored_payment_methods_data,
+        )
 
     def translation_created(self, translation: "Translation"):
         default_value = None

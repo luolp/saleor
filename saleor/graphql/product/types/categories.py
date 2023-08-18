@@ -18,7 +18,13 @@ from ...core.connection import (
     create_connection_slice,
     filter_connection_queryset,
 )
-from ...core.descriptions import ADDED_IN_310, DEPRECATED_IN_3X_FIELD, RICH_CONTENT
+from ...core.descriptions import (
+    ADDED_IN_310,
+    ADDED_IN_314,
+    DEPRECATED_IN_3X_FIELD,
+    PREVIEW_FEATURE,
+    RICH_CONTENT,
+)
 from ...core.doc_category import DOC_CATEGORY_PRODUCTS
 from ...core.federation import federated_entity, resolve_federation_references
 from ...core.fields import ConnectionField, FilterConnectionField, JSONString
@@ -32,21 +38,21 @@ from ..dataloaders import (
     CategoryChildrenByCategoryIdLoader,
     ThumbnailByCategoryIdSizeAndFormatLoader,
 )
-from ..filters import ProductFilterInput
+from ..filters import ProductFilterInput, ProductWhereInput
 from ..sorters import ProductOrder
 from .products import ProductCountableConnection
 
 
 @federated_entity("id")
 class Category(ModelObjectType[models.Category]):
-    id = graphene.GlobalID(required=True)
-    seo_title = graphene.String()
-    seo_description = graphene.String()
-    name = graphene.String(required=True)
+    id = graphene.GlobalID(required=True, description="The ID of the category.")
+    seo_title = graphene.String(description="SEO title of category.")
+    seo_description = graphene.String(description="SEO description of category.")
+    name = graphene.String(required=True, description="Name of category")
     description = JSONString(description="Description of the category." + RICH_CONTENT)
-    slug = graphene.String(required=True)
-    parent = graphene.Field(lambda: Category)
-    level = graphene.Int(required=True)
+    slug = graphene.String(required=True, description="Slug of the category.")
+    parent = graphene.Field(lambda: Category, description="Parent category.")
+    level = graphene.Int(required=True, description="Level of the category.")
     description_json = JSONString(
         description="Description of the category." + RICH_CONTENT,
         deprecation_reason=(
@@ -62,6 +68,11 @@ class Category(ModelObjectType[models.Category]):
         filter=ProductFilterInput(
             description="Filtering options for products." + ADDED_IN_310
         ),
+        where=ProductWhereInput(
+            description="Filtering options for products."
+            + ADDED_IN_314
+            + PREVIEW_FEATURE
+        ),
         sort_by=ProductOrder(description="Sort products." + ADDED_IN_310),
         channel=graphene.String(
             description="Slug of a channel for which the data should be returned."
@@ -76,7 +87,7 @@ class Category(ModelObjectType[models.Category]):
         lambda: CategoryCountableConnection,
         description="List of children of the category.",
     )
-    background_image = ThumbnailField()
+    background_image = ThumbnailField(description="Background image of the category.")
     translation = TranslationField(CategoryTranslation, type_name="category")
 
     class Meta:

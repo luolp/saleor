@@ -1,5 +1,163 @@
 from .....graphql.tests.queries import fragments
 
+ACCOUNT_CONFIRMATION_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountConfirmationRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_CONFIRMED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountConfirmed{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_CHANGE_EMAIL_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountChangeEmailRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+          newEmail
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_EMAIL_CHANGED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountEmailChanged{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_DELETE_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountDeleteRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_SET_PASSWORD_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountSetPasswordRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_DELETED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountDeleted{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
 ADDRESS_CREATED = (
     fragments.ADDRESS_DETAILS
     + """
@@ -397,6 +555,19 @@ VOUCHER_METADATA_UPDATED = (
 )
 
 
+SHOP_METADATA_UPDATED = """
+    subscription{
+      event {
+        ...on ShopMetadataUpdated{
+          shop {
+            id
+          }
+        }
+      }
+    }
+"""
+
+
 CHANNEL_CREATED = """
     subscription{
       event{
@@ -650,6 +821,34 @@ STAFF_DELETED = (
         ...on StaffDeleted{
           user{
             ...StaffDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+STAFF_SET_PASSWORD_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on StaffSetPasswordRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
           }
         }
       }
