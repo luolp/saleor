@@ -154,14 +154,17 @@ def authorize(
     payment_information: PaymentData, config: GatewayConfig
 ) -> GatewayResponse:
     try:
+        print(1231236)
         if not payment_information.customer_id:
             result = transaction_for_new_customer(payment_information, config)
         else:
             result = transaction_for_existing_customer(payment_information, config)
+        print(result)
     except BraintreeError as exc:
         handle_braintree_error(exc)
 
     gateway_response = extract_gateway_response(result)
+    print(gateway_response)
     error = get_error_for_client(gateway_response["errors"])
     kind = TransactionKind.CAPTURE if config.auto_capture else TransactionKind.AUTH
     credit_card = gateway_response.get("credit_card", {})
