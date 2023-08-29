@@ -142,11 +142,14 @@ class OrderCreateFromCheckout(BaseMutation):
     @classmethod
     def check_permissions(cls, context, permissions=None, **data):
         """Determine whether app has rights to perform this mutation."""
-        permissions = permissions or cls._meta.permissions
-        app = getattr(context, "app", None)
-        if app:
-            return app.has_perms(permissions)
-        return False
+
+        # permissions = permissions or cls._meta.permissions
+        # app = getattr(context, "app", None)
+        # if app:
+        #     return app.has_perms(permissions)
+        # return False
+        # 20230829 把上面代码注释，直接返回True
+        return True
 
     @classmethod
     def perform_mutation(  # type: ignore[override]
