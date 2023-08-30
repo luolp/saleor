@@ -172,12 +172,14 @@ class OrderCreateFromCheckout(BaseMutation):
             code=OrderCreateFromCheckoutErrorCode.CHECKOUT_NOT_FOUND.value,
         )
 
-        if cls._meta.support_meta_field and metadata is not None:
-            cls.check_metadata_permissions(info, id)
-            cls.validate_metadata_keys(metadata)
-        if cls._meta.support_private_meta_field and private_metadata is not None:
-            cls.check_metadata_permissions(info, id, private=True)
-            cls.validate_metadata_keys(private_metadata)
+        # ↓ 20230830 不验证权限（因为现在采用的是临时方案，直接从前台调用order_create接口未接入权限那一套）
+        # if cls._meta.support_meta_field and metadata is not None:
+        #     cls.check_metadata_permissions(info, id)
+        #     cls.validate_metadata_keys(metadata)
+        # if cls._meta.support_private_meta_field and private_metadata is not None:
+        #     cls.check_metadata_permissions(info, id, private=True)
+        #     cls.validate_metadata_keys(private_metadata)
+        # ↑
 
         manager = get_plugin_manager_promise(info.context).get()
         checkout_lines, unavailable_variant_pks = fetch_checkout_lines(checkout)
