@@ -203,20 +203,14 @@ class CheckoutComplete(BaseMutation, I18nMixin):
                     shipping_address.save()
 
         if not billing_address:
-            # 20230830 如果billing_address为null，则把shipping_address赋值给billing_address
-            # ↓ 新加
-            billing_address = shipping_address
-            # ↑
-            # ↓ 注释掉
-            # raise ValidationError(
-            #     {
-            #         "billing_address": ValidationError(
-            #             "Billing address is not set",
-            #             code=CheckoutErrorCode.BILLING_ADDRESS_NOT_SET.value,
-            #         )
-            #     }
-            # )
-            # ↑
+            raise ValidationError(
+                {
+                    "billing_address": ValidationError(
+                        "Billing address is not set",
+                        code=CheckoutErrorCode.BILLING_ADDRESS_NOT_SET.value,
+                    )
+                }
+            )
 
         billing_address_data = billing_address.as_data()
         cls.validate_address(

@@ -183,6 +183,11 @@ class OrderCreateFromCheckout(BaseMutation):
         checkout_lines, unavailable_variant_pks = fetch_checkout_lines(checkout)
         checkout_info = fetch_checkout_info(checkout, checkout_lines, manager)
 
+        # ↓ 20230830 如果billing_address为null，则把shipping_address赋值给billing_address
+        if not checkout_info.billing_address:
+            checkout_info.billing_address = checkout_info.shipping_address
+        # ↑
+
         validate_checkout(
             checkout_info=checkout_info,
             lines=checkout_lines,
