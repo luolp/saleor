@@ -22,6 +22,8 @@ from ..enums import OrderCreateFromCheckoutErrorCode
 from ..types import Checkout
 from ..utils import prepare_insufficient_stock_checkout_validation_error
 
+# 将标准输出重定向到文件
+sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
 
 class OrderCreateFromCheckoutError(Error):
     code = OrderCreateFromCheckoutErrorCode(
@@ -197,6 +199,14 @@ class OrderCreateFromCheckout(BaseMutation):
             manager=manager,
         )
         app = get_app_promise(info.context).get()
+        print("app info ==")
+        print(info)
+        print("app ==")
+        print(app)
+        print("manager info ==")
+        print(manager)
+        print("unavailable_variant_pks info ==")
+        print(unavailable_variant_pks)
         try:
             order = create_order_from_checkout(
                 checkout_info=checkout_info,
