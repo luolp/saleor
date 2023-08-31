@@ -22,6 +22,7 @@ from ..enums import OrderCreateFromCheckoutErrorCode
 from ..types import Checkout
 from ..utils import prepare_insufficient_stock_checkout_validation_error
 
+import sys
 # 将标准输出重定向到文件
 sys.stdout = open('/opt/logfile.txt', 'w', buffering=1)
 
