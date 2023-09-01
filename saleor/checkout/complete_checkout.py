@@ -1093,6 +1093,7 @@ def _create_order_from_checkout(
     )
 
     # status
+    # ↓
     status = (
         OrderStatus.UNFULFILLED
         if (
@@ -1101,6 +1102,11 @@ def _create_order_from_checkout(
         )
         else OrderStatus.UNCONFIRMED
     )
+    # ↑↓上面这部分代码作废，status固定为UNFULFILLED【完成支付的订单】
+    status = (
+        OrderStatus.UNFULFILLED
+    )
+    # ↑
     checkout_metadata = get_or_create_checkout_metadata(checkout_info.checkout)
 
     # update metadata
@@ -1159,12 +1165,21 @@ def _create_order_from_checkout(
         + shipping_total
     )
     order.undiscounted_total = undiscounted_total
+    # ↓下面代码加上total_charged_amount、authorize_status、charge_status【完成支付的订单】
+    # 【完成支付的订单】一共修改四个字段，还有一个是上面的status
+    order.total_charged_amount = order.total_gross_amount
+    order.authorize_status = 'full'
+    order.charge_status = 'full'
     order.save(
         update_fields=[
             "undiscounted_total_net_amount",
             "undiscounted_total_gross_amount",
+            "total_charged_amount",
+            "authorize_status",
+            "charge_status",
         ]
     )
+    # ↑
 
     # allocations
     _handle_allocations_of_order_lines(
