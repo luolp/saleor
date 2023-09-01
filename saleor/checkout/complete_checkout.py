@@ -1124,6 +1124,12 @@ def _create_order_from_checkout(
         status=status,
         language_code=checkout_info.checkout.language_code,
         total=taxed_total,  # money field not supported by mypy_django_plugin
+        # ↓下面代码加上total_charged_amount、authorize_status、charge_status【完成支付的订单】
+        # 【完成支付的订单】一共修改四个字段，还有一个是上面的status
+        total_charged_amount=taxed_total.gross.amount,
+        authorize_status="full",
+        charge_status="full",
+        # ↑
         shipping_tax_rate=shipping_tax_rate,
         voucher=voucher,
         checkout_token=str(checkout_info.checkout.token),
@@ -1165,21 +1171,12 @@ def _create_order_from_checkout(
         + shipping_total
     )
     order.undiscounted_total = undiscounted_total
-    # ↓下面代码加上total_charged_amount、authorize_status、charge_status【完成支付的订单】
-    # 【完成支付的订单】一共修改四个字段，还有一个是上面的status
-    order.total_charged_amount = order.total_gross_amount
-    order.authorize_status = 'full'
-    order.charge_status = 'full'
     order.save(
         update_fields=[
             "undiscounted_total_net_amount",
             "undiscounted_total_gross_amount",
-            "total_charged_amount",
-            "authorize_status",
-            "charge_status",
         ]
     )
-    # ↑
 
     # allocations
     _handle_allocations_of_order_lines(
