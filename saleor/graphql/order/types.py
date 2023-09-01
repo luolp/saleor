@@ -1705,7 +1705,12 @@ class Order(ModelObjectType[models.Order]):
             if not last_payment:
                 if root.total.gross.amount == 0:
                     return ChargeStatus.FULLY_CHARGED
+                # ↓ 修复管理后台支付状态显示不对的问题【支付成功后创建订单】
+                if root.total.gross.amount == root.total_charged.amount:
+                    return ChargeStatus.FULLY_CHARGED
+                # ↑
                 return ChargeStatus.NOT_CHARGED
+
             return last_payment.charge_status
 
         transactions = TransactionItemsByOrderIDLoader(info.context).load(root.id)

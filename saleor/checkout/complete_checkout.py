@@ -1102,7 +1102,7 @@ def _create_order_from_checkout(
         )
         else OrderStatus.UNCONFIRMED
     )
-    # ↑↓上面这部分代码作废，status固定为UNFULFILLED【完成支付的订单】
+    # ↑↓上面这部分代码作废，status固定为UNFULFILLED【支付成功后创建订单】
     status = (
         OrderStatus.UNFULFILLED
     )
@@ -1196,8 +1196,10 @@ def _create_order_from_checkout(
     update_order_charge_data(order, with_save=False)
     update_order_authorize_data(order, with_save=False)
 
-    # ↓修改total_charged_amount、authorize_status、charge_status【完成支付的订单】
-    # 【完成支付的订单】一共修改四个字段，还有一个是上面的status
+
+    # ↓修改total_charged_amount、authorize_status、charge_status【支付成功后创建订单】
+    # 【支付成功后创建订单】一共修改四个字段，还有一个是上面的status
+    # 这部分代码要放在“# payments”之下，因为“# payments”中的代码也会修改这三个字段
     order.total_charged_amount = taxed_total.gross.amount
     order.authorize_status = "full"
     order.charge_status = "full"
