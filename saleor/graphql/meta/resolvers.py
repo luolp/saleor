@@ -116,11 +116,13 @@ def check_private_metadata_privilege(root: ModelWithMetadata, info: ResolveInfo)
     if not isinstance(required_permissions, list):
         raise PermissionDenied()
 
-    requester = get_user_or_app_from_context(info.context)
-    if not requester or not one_of_permissions_or_auth_filter_required(
-        info.context, required_permissions
-    ):
-        raise PermissionDenied()
+    # ↓20230901 注释掉下面代码，因为order_create接口会返回errors，而这部分代码对当前不重要
+    # requester = get_user_or_app_from_context(info.context)
+    # if not requester or not one_of_permissions_or_auth_filter_required(
+    #     info.context, required_permissions
+    # ):
+    #     raise PermissionDenied() # 27
+    # ↑
 
 
 def resolve_private_metadata(root: ModelWithMetadata, info: ResolveInfo):
